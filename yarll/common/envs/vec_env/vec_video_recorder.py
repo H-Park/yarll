@@ -3,11 +3,11 @@ import os
 from gym.wrappers.monitoring import video_recorder
 
 from yarll import logger
-from yarll.common.vec_env.base_vec_env import VecEnvWrapper
-from yarll.common.vec_env.dummy_vec_env import DummyVecEnv
-from yarll.common.vec_env.subproc_vec_env import SubprocVecEnv
-from yarll.common.vec_env.vec_frame_stack import VecFrameStack
-from yarll.common.vec_env.vec_normalize import VecNormalize
+from yarll.common.envs.vec_env import VecEnvWrapper
+from yarll.common.envs.vec_env.dummy_vec_env import DummyVecEnv
+from yarll.common.envs.vec_env import SubprocVecEnv
+from yarll.common.envs.vec_env.vec_frame_stack import VecFrameStack
+from yarll.common.envs.vec_env.vec_normalize import VecNormalize
 
 
 class VecVideoRecorder(VecEnvWrapper):

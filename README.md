@@ -1,2 +1,2 @@
 # yarll
-Yet Another Reinforcemnt Learning Library
+Yet Another Reinforcement Learning Library

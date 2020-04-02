@@ -4,7 +4,7 @@ from typing import Optional, List, Union
 import numpy as np
 
 from yarll.common.segment_tree import SumSegmentTree, MinSegmentTree
-from yarll.common.vec_env import VecNormalize
+from yarll.common.envs.vec_env import VecNormalize
 
 
 class ReplayBuffer(object):

@@ -3,15 +3,9 @@ from copy import deepcopy
 
 import gym
 
-# flake8: noqa F401
-from yarll.common.vec_env.base_vec_env import AlreadySteppingError, NotSteppingError, VecEnv, VecEnvWrapper, \
-    CloudpickleWrapper
-from yarll.common.vec_env.dummy_vec_env import DummyVecEnv
-from yarll.common.vec_env.subproc_vec_env import SubprocVecEnv
-from yarll.common.vec_env.vec_frame_stack import VecFrameStack
-from yarll.common.vec_env.vec_normalize import VecNormalize
-from yarll.common.vec_env.vec_video_recorder import VecVideoRecorder
-from yarll.common.vec_env.vec_check_nan import VecCheckNan
+from yarll.common.envs.vec_env.base_vec_env import VecEnv, VecEnvWrapper
+from yarll.common.envs.vec_env.vec_frame_stack import VecFrameStack
+from yarll.common.envs.vec_env.vec_normalize import VecNormalize
 
 
 def unwrap_vec_normalize(env: Union[gym.Env, VecEnv]) -> Union[VecNormalize, None]:

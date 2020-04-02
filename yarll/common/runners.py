@@ -6,7 +6,7 @@ import gym
 import numpy as np
 
 from yarll.common.callbacks import BaseCallback
-from yarll.common.vec_env import VecEnv
+from yarll.common.envs.vec_env import VecEnv
 
 if typing.TYPE_CHECKING:
     from stableyarll_baselines.common.base_class import BaseRLModel  # pytype: disable=pyi-error

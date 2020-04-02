@@ -2,8 +2,8 @@ from collections import OrderedDict
 import numpy as np
 from typing import Sequence
 
-from yarll.common.vec_env.base_vec_env import VecEnv
-from yarll.common.vec_env.util import copy_obs_dict, dict_to_obs, obs_space_info
+from yarll.common.envs.vec_env import VecEnv
+from yarll.common.envs.vec_env.util import copy_obs_dict, dict_to_obs, obs_space_info
 
 
 class DummyVecEnv(VecEnv):

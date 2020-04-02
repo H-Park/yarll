@@ -1,20 +1,16 @@
 import os
 import glob
-import json
-import zipfile
-import warnings
 from abc import ABC, abstractmethod
 from collections import OrderedDict, deque
 from typing import Union, List, Callable, Optional
 
 import gym
-import cloudpickle
 import numpy as np
-import torch
 
 from yarll.common.misc_util import set_global_seeds
 from yarll.common.runners import AbstractEnvRunner
-from yarll.common.vec_env import VecEnvWrapper, VecEnv, DummyVecEnv, VecNormalize, unwrap_vec_normalize
+from yarll.common.envs.vec_env import VecEnvWrapper, VecEnv, VecNormalize, unwrap_vec_normalize
+from yarll.common.envs.vec_env.dummy_vec_env import DummyVecEnv
 from yarll.common.callbacks import BaseCallback, CallbackList, ConvertCallback
 from yarll import logger
 
@@ -273,11 +269,12 @@ class BaseRLModel(ABC):
         pass
 
     @abstractmethod
-    def predict(self, observation):
+    def predict(self, observation, action_mask=None):
         """
         Get the model's action from an observation
 
         :param observation: (np.ndarray) the input observation
+        :param action_mask: (np.ndarray) the action mask
         :return: (np.ndarray, np.ndarray) the model's action and the next state (used in recurrent policies)
         """
         pass
@@ -397,9 +394,8 @@ class ActorCriticRLModel(BaseRLModel):
         super(ActorCriticRLModel, self).__init__(policy, env, verbose=verbose, requires_vec_env=requires_vec_env,
                                                  seed=seed)
 
-        self.sess = None
         self.initial_state = None
-        self.step = None
+        self.policy = None
         self.proba_step = None
         self.params = None
         self._runner = None
@@ -430,16 +426,12 @@ class ActorCriticRLModel(BaseRLModel):
               log_interval=100, tb_log_name="run", reset_num_timesteps=True):
         pass
 
-    def predict(self, observation, state=None, mask=None, deterministic=False):
-        if state is None:
-            state = self.initial_state
-        if mask is None:
-            mask = [False for _ in range(self.n_envs)]
+    def predict(self, observation, action_mask=None):
         observation = np.array(observation)
         vectorized_env = self._is_vectorized_observation(observation, self.observation_space)
 
         observation = observation.reshape((-1,) + self.observation_space.shape)
-        actions, _, states, _ = self.step(observation, state, mask, deterministic=deterministic)
+        actions = self.policy.forward(observation, action_mask)
 
         clipped_actions = actions
         # Clip the actions to avoid out of bound error
@@ -447,11 +439,9 @@ class ActorCriticRLModel(BaseRLModel):
             clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
 
         if not vectorized_env:
-            if state is not None:
-                raise ValueError("Error: The environment must be vectorized when using recurrent policies.")
             clipped_actions = clipped_actions[0]
 
-        return clipped_actions, states
+        return clipped_actions
 
     def get_parameter_list(self):
         return self.policy.named_parameters()
@@ -482,18 +472,13 @@ class OffPolicyRLModel(BaseRLModel):
     :param replay_buffer: (ReplayBuffer) the type of replay buffer
     :param verbose: (int) the verbosity level: 0 none, 1 training information, 2 tensorflow debug
     :param requires_vec_env: (bool) Does this model require a vectorized environment
-    :param policy_base: (BasePolicy) the base policy used by this method
-    :param policy_kwargs: (dict) additional arguments to be passed to the policy on creation
     :param seed: (int) Seed for the pseudo-random generators (python, numpy, tensorflow).
         If None (default), use random seed. Note that if you want completely deterministic
         results, you must set `n_cpu_tf_sess` to 1.
-    :param n_cpu_tf_sess: (int) The number of threads for TensorFlow operations
-        If None, the number of cpu of the current machine will be used.
     """
 
     def __init__(self, policy, env, replay_buffer=None, _init_setup_model=False, verbose=0, *,
-                 requires_vec_env=False, policy_base=None,
-                 policy_kwargs=None, seed=None, n_cpu_tf_sess=None):
+                 requires_vec_env=False, seed=None):
         super(OffPolicyRLModel, self).__init__(policy, env, verbose=verbose, requires_vec_env=requires_vec_env,
                                                seed=seed)
 
@@ -509,7 +494,7 @@ class OffPolicyRLModel(BaseRLModel):
         pass
 
     @abstractmethod
-    def predict(self, observation, state=None, mask=None, deterministic=False):
+    def predict(self, observation, action_mask=None):
         pass
 
     @abstractmethod
@@ -624,7 +609,6 @@ class TensorboardWriter:
             if self.new_tb_log:
                 latest_run_id = latest_run_id + 1
             save_path = os.path.join(self.tensorboard_log_path, "{}_{}".format(self.tb_log_name, latest_run_id))
-            self.writer = tf.summary.FileWriter(save_path, graph=self.graph)
         return self.writer
 
     def _get_latest_run_id(self):

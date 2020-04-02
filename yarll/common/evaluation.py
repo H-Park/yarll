@@ -1,6 +1,6 @@
 import numpy as np
 
-from yarll.common.vec_env import VecEnv
+from yarll.common.envs.vec_env import VecEnv
 
 
 def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
@@ -35,7 +35,7 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
         episode_reward = 0.0
         episode_length = 0
         while not done:
-            action, state = model.predict(obs, state=state, deterministic=deterministic)
+            action = model.predict(obs)
             obs, reward, done, _info = env.step(action)
             episode_reward += reward
             if callback is not None:

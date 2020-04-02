@@ -1,12 +1,9 @@
-from functools import partial
-
 import torch
 import numpy as np
-import gym
 
 from yarll import logger
-from yarll.common import OffPolicyRLModel, SetVerbosity, TensorboardWriter
-from yarll.common.vec_env import VecEnv
+from yarll.common import OffPolicyRLModel
+from yarll.common.envs.vec_env import VecEnv
 from yarll.common.schedules import LinearSchedule
 from yarll.common.buffers import ReplayBuffer, PrioritizedReplayBuffer
 
@@ -48,11 +45,12 @@ class DQN(OffPolicyRLModel):
         If None (default), use random seed. Note that if you want completely deterministic
         results, you must set `n_cpu_tf_sess` to 1.
     """
+
     def __init__(self, policy, env, gamma=0.99, learning_rate=5e-4, buffer_size=50000, exploration_fraction=0.1,
                  exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, batch_size=32, double_q=True,
                  learning_starts=1000, target_network_update_freq=500, prioritized_replay=False,
                  prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
-                 prioritized_replay_eps=1e-6, param_noise=False,  verbose=0, tensorboard_log=None, seed=None):
+                 prioritized_replay_eps=1e-6, param_noise=False, verbose=0, tensorboard_log=None, seed=None):
 
         # TODO: replay_buffer refactoring
         super(DQN, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose,
@@ -150,9 +148,7 @@ class DQN(OffPolicyRLModel):
                 kwargs['reset'] = reset
                 kwargs['update_param_noise_threshold'] = update_param_noise_threshold
                 kwargs['update_param_noise_scale'] = True
-
-            action = self.policy.forward(torch.from_numpy(np.array(obs)).float(),
-                                         action_mask=torch.from_numpy(np.array(self.env.action_mask)).float())
+            action = self.policy.forward(torch.from_numpy(np.array(obs)))
             env_action = action
             reset = False
             new_obs, rew, done, info = self.env.step(env_action)
@@ -200,7 +196,7 @@ class DQN(OffPolicyRLModel):
                 # pytype:disable=bad-unpacking
                 if self.prioritized_replay:
                     assert self.beta_schedule is not None, \
-                           "BUG: should be LinearSchedule when self.prioritized_replay True"
+                        "BUG: should be LinearSchedule when self.prioritized_replay True"
                     experience = self.replay_buffer.sample(self.batch_size,
                                                            beta=self.beta_schedule.value(self.num_timesteps),
                                                            env=self._vec_normalize_env)
@@ -244,18 +240,10 @@ class DQN(OffPolicyRLModel):
         callback.on_training_end()
         return self
 
-    def predict(self, observation, state=None, mask=None, deterministic=True):
+    def predict(self, observation, action_mask=None):
         observation = np.array(observation)
-        vectorized_env = self._is_vectorized_observation(observation, self.observation_space)
-
-        observation = observation.reshape((-1,) + self.observation_space.shape)
-
-        actions, _, _ = self.policy.forward(observation)
-
-        if not vectorized_env:
-            actions = actions[0]
-
-        return actions, None
+        actions = self.policy.forward(torch.from_numpy(observation))
+        return actions
 
     def get_parameter_list(self):
         return self.params

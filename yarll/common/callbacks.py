@@ -7,7 +7,8 @@ from typing import Union, List, Dict, Any, Optional
 import gym
 import numpy as np
 
-from yarll.common.vec_env import VecEnv, sync_envs_normalization, DummyVecEnv
+from yarll.common.envs.vec_env import VecEnv, sync_envs_normalization
+from yarll.common.envs.vec_env.dummy_vec_env import DummyVecEnv
 from yarll.common.evaluation import evaluate_policy
 from yarll import logger
 
