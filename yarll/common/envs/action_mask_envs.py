@@ -1,5 +1,4 @@
 import gym
-import numpy as np
 from gym.spaces import Discrete, MultiDiscrete
 
 
@@ -20,10 +19,10 @@ class DiscreteMaskEnv(gym.Env):
 
     def step(self, action: int):
         action_mask = [1, 1, 1, 1, 1]
-        # if self.action_mask[action] == 0:
-        #     raise Exception("Invalid action was selected! Valid actions: {}, "
-        #                     "action taken: {}".format(self.action_mask, action))
-        # action_mask[action] = 0
+        if self.action_mask[action] == 0:
+            raise Exception("Invalid action was selected! Valid actions: {}, "
+                            "action taken: {}".format(self.action_mask, action))
+        action_mask[action] = 0
 
         self.current_step += 1
         self._action_mask = action_mask
@@ -90,27 +89,27 @@ class MultiDiscreteMaskEnv(gym.Env):
                            [1, 1, 1, 1],
                            [1, 1, 1, 1]]]
 
-        # if self.action_mask[0][actions[0]] == 0:
-        #     raise Exception("Invalid action was selected! Valid actions: {}, "
-        #                     "action taken: {}".format(self.action_mask, actions))
-        # else:
-        #     valid_actions1[actions[0]] = 0
-        # if self.action_mask[1][actions[0]][actions[1]] == 0:
-        #     raise Exception("Invalid action was selected! Valid actions: {}, "
-        #                     "action taken: {}".format(self.action_mask, actions))
-        # else:
-        #     valid_actions2[0][actions[1]] = 0
-        #     valid_actions2[1][actions[1]] = 0
-        # if self.action_mask[2][actions[0]][actions[1]][actions[2]] == 0:
-        #     raise Exception("Invalid action was selected! Valid actions: {}, "
-        #                     "action taken: {}".format(self.action_mask, actions))
-        # else:
-        #     valid_actions3[0][0][actions[2]] = 0
-        #     valid_actions3[0][1][actions[2]] = 0
-        #     valid_actions3[0][2][actions[2]] = 0
-        #     valid_actions3[1][0][actions[2]] = 0
-        #     valid_actions3[1][1][actions[2]] = 0
-        #     valid_actions3[1][2][actions[2]] = 0
+        if self.action_mask[0][actions[0]] == 0:
+            raise Exception("Invalid action was selected! Valid actions: {}, "
+                            "action taken: {}".format(self.action_mask[0], actions))
+        else:
+            valid_actions1[actions[0]] = 0
+        if self.action_mask[1][actions[0]][actions[1]] == 0:
+            raise Exception("Invalid action was selected! Valid actions: {}, "
+                            "action taken: {}".format(self.action_mask[1][actions[0]], actions))
+        else:
+            valid_actions2[0][actions[1]] = 0
+            valid_actions2[1][actions[1]] = 0
+        if self.action_mask[2][actions[0]][actions[1]][actions[2]] == 0:
+            raise Exception("Invalid action was selected! Valid actions: {}, "
+                            "action taken: {}".format(self.action_mask[2][actions[0][actions[2]]], actions))
+        else:
+            valid_actions3[0][0][actions[2]] = 0
+            valid_actions3[0][1][actions[2]] = 0
+            valid_actions3[0][2][actions[2]] = 0
+            valid_actions3[1][0][actions[2]] = 0
+            valid_actions3[1][1][actions[2]] = 0
+            valid_actions3[1][2][actions[2]] = 0
 
         self.action_mask = [valid_actions1, valid_actions2, valid_actions3]
         self._choose_next_state()

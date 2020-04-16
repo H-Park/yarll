@@ -5,7 +5,7 @@ from yarll import DQN
 from yarll.common.envs import DiscreteMaskEnv, MultiDiscreteMaskEnv
 from yarll.common.envs.vec_env.dummy_vec_env import DummyVecEnv
 from yarll.common.evaluation import evaluate_policy
-from test.test_policies import DiscretePolicy, MultiDiscretePolicy
+from test.test_policies import DiscreteMaskPolicy, MultiDiscretePolicy
 
 MODEL_LIST = [
     DQN
@@ -25,11 +25,11 @@ def test_action_mask_discrete(model_class):
 
     :param model_class: (BaseRLModel) A RL Algorithm
     """
-    env = DiscreteMaskEnv()
-    policy = DiscretePolicy(env.observation_space, env.action_space)
+    env = DummyVecEnv([DiscreteMaskEnv])
+    policy = DiscreteMaskPolicy(env.observation_space, env.action_space)
     model = model_class(policy, env)
     model.learn(total_timesteps=1000)
-    evaluate_policy(model, env, n_eval_episodes=5)
+    evaluate_policy(model, DiscreteMaskEnv(), n_eval_episodes=5)
 
 
 @pytest.mark.slow
@@ -42,9 +42,9 @@ def test_action_mask_multidiscrete(model_class):
 
     :param model_class: (BaseRLModel) A RL Algorithm
     """
-    env = MultiDiscreteMaskEnv()
+    env = DummyVecEnv([MultiDiscreteMaskEnv])
     policy = MultiDiscretePolicy(env.observation_space, env.action_space)
     model = model_class(policy, env)
     model.learn(total_timesteps=1000)
-    evaluate_policy(model, env, n_eval_episodes=5)
+    evaluate_policy(model, MultiDiscreteMaskEnv(), n_eval_episodes=5)
 

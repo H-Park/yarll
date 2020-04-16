@@ -6,8 +6,9 @@ from typing import Union, List, Callable, Optional
 
 import gym
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 
-from yarll.common.misc_util import set_global_seeds
+from yarll.common.misc_util import set_global_seeds, verify_env_policy
 from yarll.common.runners import AbstractEnvRunner
 from yarll.common.envs.vec_env import VecEnvWrapper, VecEnv, VecNormalize, unwrap_vec_normalize
 from yarll.common.envs.vec_env.dummy_vec_env import DummyVecEnv
@@ -73,6 +74,8 @@ class BaseRLModel(ABC):
 
         # Get VecNormalize object if it exists
         self._vec_normalize_env = unwrap_vec_normalize(self.env)
+
+        verify_env_policy(self, self.env)
 
     def get_env(self):
         """
@@ -588,16 +591,16 @@ class SetVerbosity:
 
 
 class TensorboardWriter:
-    def __init__(self, graph, tensorboard_log_path, tb_log_name, new_tb_log=True):
+    def __init__(self, policy, tensorboard_log_path, tb_log_name, new_tb_log=True):
         """
         Create a Tensorboard writer for a code segment, and saves it to the log directory as its own run
 
-        :param graph: (Tensorflow Graph) the model graph
+        :param policy: (Tensorflow Graph) the model graph
         :param tensorboard_log_path: (str) the save path for the log (can be None for no logging)
         :param tb_log_name: (str) the name of the run for tensorboard log
         :param new_tb_log: (bool) whether or not to create a new logging folder for tensorbaord
         """
-        self.graph = graph
+        self.policy = policy
         self.tensorboard_log_path = tensorboard_log_path
         self.tb_log_name = tb_log_name
         self.writer = None
@@ -609,6 +612,7 @@ class TensorboardWriter:
             if self.new_tb_log:
                 latest_run_id = latest_run_id + 1
             save_path = os.path.join(self.tensorboard_log_path, "{}_{}".format(self.tb_log_name, latest_run_id))
+            self.writer = SummaryWriter(save_path)
         return self.writer
 
     def _get_latest_run_id(self):
@@ -628,5 +632,5 @@ class TensorboardWriter:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.writer is not None:
-            self.writer.add_graph(self.graph)
+            # self.writer.add_graph(self.policy)
             self.writer.flush()

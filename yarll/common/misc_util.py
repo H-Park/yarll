@@ -3,6 +3,8 @@ import random
 import gym
 import numpy as np
 import torch
+from yarll.common.evaluation import evaluate_policy
+
 
 def zipsame(*seqs):
     """
@@ -47,3 +49,52 @@ def flatten_lists(listoflists):
     :return: (list)
     """
     return [el for list_ in listoflists for el in list_]
+
+
+def verify_env_policy(policy, env: gym.Env):
+    # verify Env's observation space matches the action space
+    env.reset()
+    if isinstance(env.action_space, list):
+        action = None
+        for ac_space in env.action_space:
+            action.append(ac_space.sample())
+    else:
+        action = env.action_space.sample()
+    try:
+        env.step(action)
+    except:
+        raise Exception("The environment provided does not accept a proper action! Make sure env.step() expects the "
+                        "same type / dimension as env.action_space.sample().")
+
+    # verify Policy and Env compatibility
+    try:
+        evaluate_policy(policy, env, n_eval_episodes=1)
+    except:
+        raise Exception("The provided policy does not provide a valid action according to the provided "
+                        "environment!")
+
+
+def total_episode_reward_logger(rew_acc, rewards, masks, writer, steps):
+    """
+    calculates the cumulated episode reward, and prints to tensorflow log the output
+    :param rew_acc: (np.array float) the total running reward
+    :param rewards: (np.array float) the rewards
+    :param masks: (np.array bool) the end of episodes
+    :param writer: (TensorFlow Session.writer) the writer to log to
+    :param steps: (int) the current timestep
+    :return: (np.array float) the updated total running reward
+    :return: (np.array float) the updated total running reward
+    """
+    for env_idx in range(rewards.shape[0]):
+        dones_idx = np.sort(np.argwhere(masks[env_idx]))
+
+        if len(dones_idx) == 0:
+            rew_acc[env_idx] += sum(rewards[env_idx])
+        else:
+            rew_acc[env_idx] += sum(rewards[env_idx, :dones_idx[0, 0]])
+            writer.add_scalar("Episode rewards", rew_acc[env_idx], steps + dones_idx[0, 0])
+            for k in range(1, len(dones_idx[:, 0])):
+                rew_acc[env_idx] = sum(rewards[env_idx, dones_idx[k-1, 0]:dones_idx[k, 0]])
+                writer.add_scalar("Episode rewards", rew_acc[env_idx], steps + dones_idx[k, 0])
+            rew_acc[env_idx] = sum(rewards[env_idx, dones_idx[-1, 0]:])
+    return rew_acc

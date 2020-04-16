@@ -1,5 +1,7 @@
 import numpy as np
+import torch
 
+from gym.spaces import Discrete, MultiDiscrete
 from yarll.common.envs.vec_env import VecEnv
 
 
@@ -34,15 +36,27 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
         done, state = False, None
         episode_reward = 0.0
         episode_length = 0
+
+        action_mask = None
+
         while not done:
-            action = model.predict(obs)
-            obs, reward, done, _info = env.step(action)
+            action = model.predict(obs, action_mask)
+            obs, reward, done, info = env.step(action)
             episode_reward += reward
             if callback is not None:
                 callback(locals(), globals())
             episode_length += 1
             if render:
                 env.render()
+
+            if info.get('action_mask') is not None:
+                if isinstance(env.action_space, Discrete):
+                    action_mask = torch.from_numpy(np.array(info.get('action_mask')))
+
+                elif isinstance(env.action_space, MultiDiscrete):
+                    action_mask = []
+                    for mask in info.get('action_mask'):
+                        action_mask.append(torch.from_numpy(np.array(mask)))
         episode_rewards.append(episode_reward)
         episode_lengths.append(episode_length)
 

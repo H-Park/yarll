@@ -3,10 +3,10 @@ from typing import Optional
 import torch
 
 from gym import Env, Space
-from gym.spaces import Discrete, MultiDiscrete, Box
+from gym.spaces import Discrete
 
 
-class IdentityEnv(Env):
+class InvalidEnv(Env):
     def __init__(self,
                  dim: Optional[int] = None,
                  space: Optional[Space] = None,
@@ -23,8 +23,8 @@ class IdentityEnv(Env):
         """
         if space is None:
             if dim is None:
-                self.dim = 1
-            space = Discrete(self.dim)
+                dim = 1
+            space = Discrete(dim)
         else:
             assert dim is None, "arguments for both 'dim' and 'space' provided: at most one allowed"
 
@@ -48,48 +48,10 @@ class IdentityEnv(Env):
         return self.state, reward, done, {}
 
     def _choose_next_state(self):
-        self.state = self.action_space.sample()
+        self.state = [5]
 
     def _get_reward(self, action: torch.Tensor):
         return 1 if torch.tensor(self.state) == action else 0
 
     def render(self, mode='human'):
         pass
-
-
-class IdentityEnvBox(IdentityEnv):
-    def __init__(self, low=-1, high=1, eps=0.05, ep_length=100):
-        """
-        Identity environment for testing purposes
-
-        :param low: (float) the lower bound of the box dim
-        :param high: (float) the upper bound of the box dim
-        :param eps: (float) the epsilon bound for correct value
-        :param ep_length: (int) the length of each episode in timesteps
-        """
-        space = Box(low=low, high=high, shape=(1,), dtype=np.float32)
-        super().__init__(ep_length=ep_length, space=space)
-        self.eps = eps
-
-    def step(self, action):
-        reward = self._get_reward(action)
-        self._choose_next_state()
-        self.current_step += 1
-        done = self.current_step >= self.ep_length
-        return self.state, reward, done, {}
-
-    def _get_reward(self, action):
-        return 1 if (self.state - self.eps) <= action <= (self.state + self.eps) else 0
-
-
-class IdentityEnvMultiDiscrete(IdentityEnv):
-    def __init__(self, dim=3, ep_length=100):
-        """
-        Identity environment for testing purposes
-
-        :param dim: (int) the size of the dimensions you want to learn
-        :param ep_length: (int) the length of each episode in timesteps
-        """
-        self.dim = dim
-        space = MultiDiscrete([self.dim, self.dim])
-        super().__init__(ep_length=ep_length, space=space)
