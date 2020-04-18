@@ -28,11 +28,10 @@ def test_action_mask_discrete(model_class):
     env = DummyVecEnv([DiscreteMaskEnv])
     policy = DiscreteMaskPolicy(env.observation_space, env.action_space)
     model = model_class(policy, env)
-    model.learn(total_timesteps=1000)
+    model.learn(total_timesteps=100000)
     evaluate_policy(model, DiscreteMaskEnv(), n_eval_episodes=5)
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("model_class", MODEL_LIST)
 def test_action_mask_multidiscrete(model_class):
     """

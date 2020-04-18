@@ -3,6 +3,9 @@ import numpy as np
 
 from gym.spaces import Discrete, MultiDiscrete
 
+import torch.nn.functional as F
+import torch.optim as optim
+
 from yarll import logger
 from yarll.common import OffPolicyRLModel, SetVerbosity, TensorboardWriter, total_episode_reward_logger
 from yarll.common.envs.vec_env import VecEnv
@@ -54,7 +57,6 @@ class DQN(OffPolicyRLModel):
                  prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
                  prioritized_replay_eps=1e-6, param_noise=False, verbose=0, tensorboard_log=None, seed=None):
 
-        # TODO: replay_buffer refactoring
         super(DQN, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose,
                                   requires_vec_env=False, seed=seed)
 
@@ -78,13 +80,14 @@ class DQN(OffPolicyRLModel):
         self.double_q = double_q
 
         self.policy = policy
-        self.update_target = None
+        self.target = policy
         self.act = None
         self.replay_buffer = None
         self.beta_schedule = None
         self.exploration = None
         self.params = None
-        self.summary = None
+
+        self.optimizer = optim.RMSprop(self.policy.parameters())
 
     def setup_model(self):
         pass
@@ -156,7 +159,7 @@ class DQN(OffPolicyRLModel):
                     kwargs['update_param_noise_threshold'] = update_param_noise_threshold
                     kwargs['update_param_noise_scale'] = True
 
-                action = self.policy.forward(torch.from_numpy(np.array(obs)), action_mask=action_mask)
+                action = self.policy.forward(torch.from_numpy(np.array([obs])), action_mask=action_mask)
                 env_action = action
                 reset = False
                 new_obs, rew, done, info = self.env.step(env_action)
@@ -185,7 +188,6 @@ class DQN(OffPolicyRLModel):
                     obs_, new_obs_, reward_ = obs, new_obs, rew
                 # Store transition in the replay buffer.
                 self.replay_buffer.add(obs_, action, reward_, new_obs_, float(done))
-                obs = new_obs
                 # Save the unnormalized observation
                 if self._vec_normalize_env is not None:
                     obs_ = new_obs_
@@ -226,19 +228,19 @@ class DQN(OffPolicyRLModel):
                         weights, batch_idxes = np.ones_like(rewards), None
                     # pytype:enable=bad-unpacking
 
-                    # TODO: TRAIN STEP
+                    td_errors = self._train_step(obses_t, actions, rewards, obses_tp1)
 
                     if self.prioritized_replay:
                         new_priorities = np.abs(0) + self.prioritized_replay_eps
                         assert isinstance(self.replay_buffer, PrioritizedReplayBuffer)
                         self.replay_buffer.update_priorities(batch_idxes, new_priorities)
-                #
-                #     callback.on_rollout_start()
-                #
-                # if can_sample and self.num_timesteps > self.learning_starts and \
-                #         self.num_timesteps % self.target_network_update_freq == 0:
-                #     # Update target network periodically.
-                #     self.update_target(sess=self.sess)
+
+                    callback.on_rollout_start()
+
+                if can_sample and self.num_timesteps > self.learning_starts and \
+                        self.num_timesteps % self.target_network_update_freq == 0:
+                    # Update target network periodically.
+                    self.update_target()
 
                 if len(episode_rewards[-101:-1]) == 0:
                     mean_100ep_reward = -np.inf
@@ -260,9 +262,70 @@ class DQN(OffPolicyRLModel):
         return self
 
     def predict(self, observation, action_mask=None):
-        observation = np.array(observation)
-        actions = self.policy.forward(torch.from_numpy(observation), action_mask)
+        observation = np.array([observation])
+        actions = self.policy.forward(torch.from_numpy(observation).float(), action_mask)
         return actions
+
+    def _train_step(self, obs_t, action, reward, obs_tp1,):
+        """
+        Function that takes a transition (s,a,r,s') and optimizes Bellman Equation's error:
+
+            td_error = Q(s,a) - (r + gamma * max_a' Q(s', a'))
+
+        :param obs_t: (any) Batch of observations
+        :param action: (numpy int) action that were selected upon seeing obs_t. dtype must be int32 and shape must be
+            (batch_size,)
+        :param reward: (numpy float) Immediate reward attained after executing those actions. dtype must be float 32
+            and shape must be (batch_size,)
+        :param obs_tp1: (Any) Observations that followed obs_t
+        :return: (numpy float) td_error: a list of differences between Q(s, a) and the target in Bellman's equation.
+            dtype is float32 and shape is (batch_size,)
+        """
+
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, obs_tp1)), dtype=torch.bool)
+        non_final_next_states = torch.cat([torch.tensor([s]) for s in obs_tp1 if s is not None])
+        state_batch = torch.cat([torch.tensor([s]) for s in obs_t])
+        action_batch = torch.cat([torch.tensor([a]) for a in action])
+        reward_batch = torch.cat([torch.tensor([r]) for r in reward])
+
+        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+        # columns of actions taken. These are the actions which would've been taken
+        # for each batch state according to policy_net
+        state_action_values = self.policy(state_batch)
+
+        # Compute V(s_{t+1}) for all next states.
+        # Expected values of actions for non_final_next_states are computed based
+        # on the "older" target_net; selecting their best reward with max(1)[0].
+        # This is merged based on the mask, such that we'll have either the expected
+        # state value or 0 in case the state was final.
+        next_state_values = torch.zeros(self.batch_size)
+        next_state_values[non_final_mask] = self.target(non_final_next_states).float().detach()
+        # Compute the expected Q values
+        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
+
+        # Compute Huber loss
+        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+
+        # Optimize the model
+        self.optimizer.zero_grad()
+        loss.backward()
+        for param in self.policy.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.optimizer.step()
+
+        quit()
+        return loss
+
+    def update_target(self):
+        """
+        Copy the parameters from the optimized Q function to the target Q function.
+        In Q learning, we actually optimize the following error:
+
+            Q(s, a) - (r + gamma * max_a' Q'(s', a'))
+
+        :return: None
+        """
+        self.target.load_state_dict(self.policy.state_dict())
 
     def get_parameter_list(self):
         return self.params
@@ -296,4 +359,4 @@ class DQN(OffPolicyRLModel):
 
         params_to_save = self.get_parameters()
 
-        self.save(save_path)
+        # TODO: Actually write data to disk

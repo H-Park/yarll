@@ -32,21 +32,19 @@ class IdentityPolicy(torch.nn.Module):
 class DiscreteMaskPolicy(torch.nn.Module):
     def __init__(self, obs_space: Discrete, ac_space: Discrete):
         super(DiscreteMaskPolicy, self).__init__()
-        self.input_one_hot = torch.eye(obs_space.n)
 
-        self.linear1 = torch.nn.Linear(obs_space.n, 16)
-        self.linear2 = torch.nn.Linear(16, 16)
-        self.linear3 = torch.nn.Linear(16, ac_space.n)
+        self.linear1 = torch.nn.Linear(1, 8)
+        self.linear2 = torch.nn.Linear(8, 8)
+        self.linear3 = torch.nn.Linear(8, ac_space.n)
 
     def forward(self, x, action_mask=None):
-        x = self.input_one_hot[x-1].float()
         x = self.linear1(x)
         x = self.linear2(x)
         x = torch.sigmoid(self.linear3(x))
         if action_mask is not None:
-            _, indices = torch.softmax(x * action_mask, dim=0).max(0)
+            _, indices = torch.softmax(x * action_mask, dim=-1).max(-1)
         else:
-            _, indices = torch.softmax(x, dim=0).max(0)
+            _, indices = torch.softmax(x, dim=-1).max(-1)
         return indices
 
 

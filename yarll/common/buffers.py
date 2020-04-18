@@ -61,7 +61,6 @@ class ReplayBuffer(object):
         :param done: (bool) is the episode done
         """
         data = (obs_t, action, reward, obs_tp1, done)
-
         if self._next_idx >= len(self._storage):
             self._storage.append(data)
         else:

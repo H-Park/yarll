@@ -25,8 +25,8 @@ def test_identity_multidiscrete(model_class):
     :param model_class: (BaseRLModel) A RL Algorithm
     """
     env = DummyVecEnv([IdentityEnvMultiDiscrete])
-    policy = IdentityPolicy(env.observation_space, env.action_space)
-    model = model_class(policy, env)
-    model.learn(total_timesteps=32)
+    policy = IdentityPolicy(env.observation_space, env.action_space).cuda()
+    model = model_class(policy, env, tensorboard_log="run/")
+    model.learn(total_timesteps=10000)
     evaluate_policy(model, IdentityEnvMultiDiscrete(), n_eval_episodes=4)
 
