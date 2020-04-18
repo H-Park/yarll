@@ -23,7 +23,7 @@ class IdentityEnv(Env):
         """
         if space is None:
             if dim is None:
-                self.dim = 1
+                self.dim = 5
             space = Discrete(self.dim)
         else:
             assert dim is None, "arguments for both 'dim' and 'space' provided: at most one allowed"

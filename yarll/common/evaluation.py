@@ -31,6 +31,7 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
         assert env.num_envs == 1, "You must pass only one environment when using this function"
 
     episode_rewards, episode_lengths = [], []
+    one_hot = torch.eye(env.observation_space.n, dtype=torch.float)
     for _ in range(n_eval_episodes):
         obs = env.reset()
         done, state = False, None
@@ -40,7 +41,8 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
         action_mask = None
 
         while not done:
-            action = model.predict(obs, action_mask)
+            obs_one_hot = one_hot[obs - 1]
+            action = model.predict(obs_one_hot, action_mask)
             obs, reward, done, info = env.step(action)
             episode_reward += reward
             if callback is not None:

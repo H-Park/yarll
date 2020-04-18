@@ -33,7 +33,7 @@ class DiscreteMaskPolicy(torch.nn.Module):
     def __init__(self, obs_space: Discrete, ac_space: Discrete):
         super(DiscreteMaskPolicy, self).__init__()
 
-        self.linear1 = torch.nn.Linear(1, 8)
+        self.linear1 = torch.nn.Linear(obs_space.n, 8)
         self.linear2 = torch.nn.Linear(8, 8)
         self.linear3 = torch.nn.Linear(8, ac_space.n)
 

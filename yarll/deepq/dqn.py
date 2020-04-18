@@ -159,7 +159,8 @@ class DQN(OffPolicyRLModel):
                     kwargs['update_param_noise_threshold'] = update_param_noise_threshold
                     kwargs['update_param_noise_scale'] = True
 
-                action = self.policy.forward(torch.from_numpy(np.array([obs])), action_mask=action_mask)
+                one_hot = torch.eye(self.env.observation_space.n, dtype=torch.float).cuda()
+                action = self.policy(one_hot[obs - 1], action_mask=action_mask)
                 env_action = action
                 reset = False
                 new_obs, rew, done, info = self.env.step(env_action)
@@ -187,7 +188,7 @@ class DQN(OffPolicyRLModel):
                     # Avoid changing the original ones
                     obs_, new_obs_, reward_ = obs, new_obs, rew
                 # Store transition in the replay buffer.
-                self.replay_buffer.add(obs_, action, reward_, new_obs_, float(done))
+                self.replay_buffer.add(one_hot[obs_ - 1], action, reward_, one_hot[new_obs_ - 1], float(done))
                 # Save the unnormalized observation
                 if self._vec_normalize_env is not None:
                     obs_ = new_obs_
@@ -262,8 +263,7 @@ class DQN(OffPolicyRLModel):
         return self
 
     def predict(self, observation, action_mask=None):
-        observation = np.array([observation])
-        actions = self.policy.forward(torch.from_numpy(observation).float(), action_mask)
+        actions = self.policy(torch.tensor(observation).cuda(), action_mask)
         return actions
 
     def _train_step(self, obs_t, action, reward, obs_tp1,):
@@ -283,28 +283,29 @@ class DQN(OffPolicyRLModel):
         """
 
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, obs_tp1)), dtype=torch.bool)
-        non_final_next_states = torch.cat([torch.tensor([s]) for s in obs_tp1 if s is not None])
-        state_batch = torch.cat([torch.tensor([s]) for s in obs_t])
-        action_batch = torch.cat([torch.tensor([a]) for a in action])
-        reward_batch = torch.cat([torch.tensor([r]) for r in reward])
+        non_final_next_states = torch.stack([s for s in obs_tp1 if s is not None]).cuda()
+        state_batch = torch.stack([obs for obs in obs_t]).cuda()
+        action_batch = torch.stack([a for a in action]).cuda()
+        reward_batch = torch.cat([torch.tensor([r]) for r in reward]).cuda()
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
-        state_action_values = self.policy(state_batch)
+        # state_action_values = self.policy(state_batch.float())
 
         # Compute V(s_{t+1}) for all next states.
         # Expected values of actions for non_final_next_states are computed based
         # on the "older" target_net; selecting their best reward with max(1)[0].
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(self.batch_size)
-        next_state_values[non_final_mask] = self.target(non_final_next_states).float().detach()
+        next_state_values = torch.zeros(self.batch_size).cuda()
+        next_state_values[non_final_mask] = self.target(non_final_next_states).float()
+
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.gamma) + reward_batch
 
         # Compute Huber loss
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+        loss = F.smooth_l1_loss(action_batch, expected_state_action_values)
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -313,7 +314,6 @@ class DQN(OffPolicyRLModel):
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
-        quit()
         return loss
 
     def update_target(self):
