@@ -5,7 +5,8 @@ from collections import OrderedDict, deque
 from typing import Union, List, Callable, Optional
 
 import gym
-import numpy as np
+
+import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from yarll.common.misc_util import set_global_seeds, verify_env_policy
@@ -43,6 +44,8 @@ class BaseRLModel(ABC):
         self.seed = seed
         self.episode_reward = None
         self.ep_info_buf = None
+        self.obs_transformation = None
+        self.ac_transformation = None
 
         if env is not None:
             if isinstance(env, str):
@@ -52,6 +55,7 @@ class BaseRLModel(ABC):
 
             self.observation_space = env.observation_space
             self.action_space = env.action_space
+            self.set_up_space_transformations()
             if requires_vec_env:
                 if isinstance(env, VecEnv):
                     self.n_envs = env.num_envs
@@ -207,7 +211,7 @@ class BaseRLModel(ABC):
             raise ValueError("Error: cannot train the model without a valid environment, please set an environment with"
                              "set_env(self, env) method.")
         if self.episode_reward is None:
-            self.episode_reward = np.zeros((self.n_envs,))
+            self.episode_reward = torch.zeros((self.n_envs,))
         if self.ep_info_buf is None:
             self.ep_info_buf = deque(maxlen=100)
 
@@ -378,6 +382,59 @@ class BaseRLModel(ABC):
             raise ValueError("Error: Cannot determine if the observation is vectorized with the space type {}."
                              .format(observation_space))
 
+    def set_up_space_transformations(self):
+        self.set_up_obs_transformation()
+        self.set_up_ac_transformation()
+
+    def set_up_ac_transformation(self):
+        if not isinstance(self.action_space, List):
+            self.action_space = [self.action_space]
+        self.ac_transformation = []
+        for ac_space in self.action_space:
+            if isinstance(ac_space, gym.spaces.Discrete):
+                self.ac_transformation.append(torch.eye(ac_space.n))
+            elif isinstance(ac_space, gym.spaces.MultiDiscrete):
+                transformations = []
+                for discrete in ac_space.nvec:
+                    transformations.append(torch.eye(int(discrete)))  # nvec is a list of numpy values
+                self.ac_transformation.append(transformations)
+
+    def set_up_obs_transformation(self):
+        if not isinstance(self.observation_space, List):
+            self.observation_space = [self.observation_space]
+        self.obs_transformation = []
+        for obs_space in self.observation_space:
+            if isinstance(obs_space, gym.spaces.Discrete):
+                self.obs_transformation.append(torch.eye(obs_space.n))
+            elif isinstance(obs_space, gym.spaces.MultiDiscrete):
+                transformations = []
+                for discrete in obs_space.nvec:
+                    transformations.append(torch.eye(int(discrete)))  # nvec is a list of numpy values
+                self.obs_transformation.append(transformations)
+
+    def transform_observation(self, obs):
+        if not isinstance(obs, List):
+            obs = [obs]
+        transformed = []
+        for i, obs_space in enumerate(self.observation_space):
+            if isinstance(obs_space, gym.spaces.Discrete):
+                transformed.append(self.obs_transformation[i][obs[i].long() - 1])
+            elif isinstance(obs_space, gym.spaces.MultiDiscrete):
+                transformed.append([self.obs_transformation[i][j][index.long() - 1] for j, index in enumerate(obs[i])])
+        return transformed
+
+    def transform_action(self, action):
+        if not isinstance(action, List):
+            action = [action]
+        transformed = []
+        for i, ac_space in enumerate(self.action_space):
+            if isinstance(ac_space, gym.spaces.Discrete):
+                transformed.append(self.ac_transformation[i][action[i] - 1])
+            elif isinstance(ac_space, gym.spaces.MultiDiscrete):
+                transformed.append([self.ac_transformation[i][j][index - 1]
+                                    for j, index in enumerate(action[i])])
+        return transformed
+
 
 class ActorCriticRLModel(BaseRLModel):
     """
@@ -430,7 +487,6 @@ class ActorCriticRLModel(BaseRLModel):
         pass
 
     def predict(self, observation, action_mask=None):
-        observation = np.array(observation)
         vectorized_env = self._is_vectorized_observation(observation, self.observation_space)
 
         observation = observation.reshape((-1,) + self.observation_space.shape)
@@ -439,7 +495,7 @@ class ActorCriticRLModel(BaseRLModel):
         clipped_actions = actions
         # Clip the actions to avoid out of bound error
         if isinstance(self.action_space, gym.spaces.Box):
-            clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
+            clipped_actions = torch.clamp(actions, min=self.action_space.low, max=self.action_space.high)
 
         if not vectorized_env:
             clipped_actions = clipped_actions[0]

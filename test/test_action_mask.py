@@ -5,7 +5,12 @@ from yarll import DQN
 from yarll.common.envs import DiscreteMaskEnv, MultiDiscreteMaskEnv
 from yarll.common.envs.vec_env.dummy_vec_env import DummyVecEnv
 from yarll.common.evaluation import evaluate_policy
-from test.test_policies import DiscreteMaskPolicy, MultiDiscretePolicy
+from test.test_policies import DiscretePolicy, MultiDiscretePolicy
+
+import torch
+
+if torch.cuda.is_available():
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 MODEL_LIST = [
     DQN
@@ -15,7 +20,6 @@ MODEL_LIST = [
 ]
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("model_class", MODEL_LIST)
 def test_action_mask_discrete(model_class):
     """
@@ -26,9 +30,9 @@ def test_action_mask_discrete(model_class):
     :param model_class: (BaseRLModel) A RL Algorithm
     """
     env = DummyVecEnv([DiscreteMaskEnv])
-    policy = DiscreteMaskPolicy(env.observation_space, env.action_space)
+    policy = DiscretePolicy(env.observation_space, env.action_space)
     model = model_class(policy, env)
-    model.learn(total_timesteps=100000)
+    model.learn(total_timesteps=128)
     evaluate_policy(model, DiscreteMaskEnv(), n_eval_episodes=5)
 
 
@@ -44,6 +48,6 @@ def test_action_mask_multidiscrete(model_class):
     env = DummyVecEnv([MultiDiscreteMaskEnv])
     policy = MultiDiscretePolicy(env.observation_space, env.action_space)
     model = model_class(policy, env)
-    model.learn(total_timesteps=1000)
+    model.learn(total_timesteps=128)
     evaluate_policy(model, MultiDiscreteMaskEnv(), n_eval_episodes=5)
 

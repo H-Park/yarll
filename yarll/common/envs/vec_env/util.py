@@ -10,13 +10,13 @@ import numpy as np
 
 def copy_obs_dict(obs):
     """
-    Deep-copy a dict of numpy arrays.
+    Deep-copy a dict of torch tensors.
 
-    :param obs: (OrderedDict<ndarray>): a dict of numpy arrays.
-    :return (OrderedDict<ndarray>) a dict of copied numpy arrays.
+    :param obs: (OrderedDict<torch.tensor>): a dict of torch tensors.
+    :return (OrderedDict<torch.tensor>) a dict of copied torch tensors.
     """
     assert isinstance(obs, OrderedDict), "unexpected type for observations '{}'".format(type(obs))
-    return OrderedDict([(k, np.copy(v)) for k, v in obs.items()])
+    return OrderedDict([(k, v.clone().detach()) for k, v in obs.items()])
 
 
 def dict_to_obs(space, obs_dict):

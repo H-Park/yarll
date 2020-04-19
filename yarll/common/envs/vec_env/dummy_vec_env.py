@@ -1,6 +1,8 @@
 from collections import OrderedDict
-import numpy as np
 from typing import Sequence
+
+import torch
+import numpy as np
 
 from yarll.common.envs.vec_env import VecEnv
 from yarll.common.envs.vec_env.util import copy_obs_dict, dict_to_obs, obs_space_info
@@ -25,10 +27,10 @@ class DummyVecEnv(VecEnv):
         self.keys, shapes, dtypes = obs_space_info(obs_space)
 
         self.buf_obs = OrderedDict([
-            (k, np.zeros((self.num_envs,) + tuple(shapes[k]), dtype=dtypes[k]))
+            (k, torch.zeros(*(self.num_envs,) + tuple(shapes[k])))
             for k in self.keys])
-        self.buf_dones = np.zeros((self.num_envs,), dtype=np.bool)
-        self.buf_rews = np.zeros((self.num_envs,), dtype=np.float32)
+        self.buf_dones = torch.zeros((self.num_envs,), dtype=torch.bool)
+        self.buf_rews = torch.zeros((self.num_envs,))
         self.buf_infos = [{} for _ in range(self.num_envs)]
         self.actions = None
         self.metadata = env.metadata
@@ -45,7 +47,7 @@ class DummyVecEnv(VecEnv):
                 self.buf_infos[env_idx]['terminal_observation'] = obs
                 obs = self.envs[env_idx].reset()
             self._save_obs(env_idx, obs)
-        return (self._obs_from_buf(), np.copy(self.buf_rews), np.copy(self.buf_dones),
+        return (self._obs_from_buf(), self.buf_rews.clone().detach(), (self.buf_dones.clone().detach()),
                 self.buf_infos.copy())
 
     def seed(self, seed=None):

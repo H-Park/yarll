@@ -55,11 +55,11 @@ def verify_env_policy(policy, env: gym.Env):
     # verify Env's observation space matches the action space
     env.reset()
     if isinstance(env.action_space, list):
-        action = None
+        action = []
         for ac_space in env.action_space:
-            action.append(ac_space.sample())
+            action.append(torch.tensor(ac_space.sample()))
     else:
-        action = env.action_space.sample()
+        action = torch.tensor(env.action_space.sample())
     try:
         env.step(action)
     except:

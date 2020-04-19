@@ -1,37 +1,12 @@
 import torch
 from gym.spaces import Discrete, MultiDiscrete
+import numpy as np
+from yarll.deepq import DQNPolicy
 
 
-class IdentityPolicy(torch.nn.Module):
-    def __init__(self, obs_space: MultiDiscrete, ac_space: MultiDiscrete):
-        super(IdentityPolicy, self).__init__()
-        self.linear1 = []
-        self.inputs_one_hot = []
-        for space_dim in obs_space.nvec:
-            self.inputs_one_hot.append(torch.eye(int(space_dim)))
-            self.linear1.append(torch.nn.Linear(space_dim, 4))
-
-        self.linear = torch.nn.Linear(len(self.linear1) * 4, 4)
-        self.output = []
-        for space_dim in ac_space.nvec:
-            self.output.append(torch.nn.Linear(4, space_dim))
-
-    def forward(self, x, action_mask=None):
-        inputs = []
-        for i, linear in enumerate(self.linear1):
-            inputs.append(linear(self.inputs_one_hot[i][x[i] - 1]))
-        concat = torch.cat(inputs)
-        x = self.linear(concat)
-        actions = []
-        for output in self.output:
-            _, action = torch.softmax(output(x), dim=0).max(0)
-            actions.append(action)
-        return actions
-
-
-class DiscreteMaskPolicy(torch.nn.Module):
+class DiscretePolicy(DQNPolicy):
     def __init__(self, obs_space: Discrete, ac_space: Discrete):
-        super(DiscreteMaskPolicy, self).__init__()
+        super(DiscretePolicy, self).__init__()
 
         self.linear1 = torch.nn.Linear(obs_space.n, 8)
         self.linear2 = torch.nn.Linear(8, 8)
@@ -47,63 +22,88 @@ class DiscreteMaskPolicy(torch.nn.Module):
             _, indices = torch.softmax(x, dim=-1).max(-1)
         return indices
 
+    def apply_mask(self, logits, action_mask=None):
+        if action_mask is None:
+            return torch.tensor(logits)
+        else:
+            return np.random.choice(np.nonzero(np.array(action_mask.cpu()))[0])
 
-class RecurrentMaskPolicy(torch.nn.Module):
+
+class MultiDiscretePolicy(DQNPolicy):
+    def __init__(self, obs_space: MultiDiscrete, ac_space: MultiDiscrete):
+        super(MultiDiscretePolicy, self).__init__()
+        self.linear1 = []
+        for space_dim in obs_space.nvec:
+            self.linear1.append(torch.nn.Linear(space_dim, 8))
+
+        self.linear2 = torch.nn.Linear(len(self.linear1) * 8, 8)
+        self.output = []
+        for space_dim in ac_space.nvec:
+            self.output.append(torch.nn.Linear(8, space_dim))
+
+    def forward(self, *args, action_mask=None):
+        x1 = self.linear1[0](args[0][0])
+        x2 = self.linear1[1](args[0][1])
+        concat = torch.cat([x1, x2])
+        x = self.linear2(concat)
+        actions = []
+        for i, output in enumerate(self.output):
+            if action_mask is not None:
+                if i == 0:
+                    _, action = torch.softmax(torch.sigmoid(output(x)) * action_mask[i], dim=0).max(-1)
+                    actions.append(action)
+                else:
+                    sliced_action_mask = action_mask[i]
+                    for j, index in enumerate(actions):
+                        sliced_action_mask = sliced_action_mask[index]
+                    _, action = torch.softmax(torch.sigmoid(output(x)) * sliced_action_mask, dim=0).max(-1)
+                    actions.append(action)
+            else:
+                _, action = torch.softmax(output(x), dim=0).max(0)
+                actions.append(action)
+        return torch.stack(actions)
+
+    def apply_mask(self, logits, action_mask):
+        if action_mask is None:
+            if isinstance(logits, list):
+                masked = []
+                for logit in logits:
+                    masked.append(torch.tensor(logit))
+                return torch.stack(masked)
+            return torch.tensor(logits)
+        else:
+            actions = []
+            for mask in action_mask:
+                if len(actions) == 0:
+                    actions.append(np.random.choice(np.nonzero(np.array(mask.cpu()))[0]))
+                else:
+                    for action in actions:
+                        mask = mask[action]
+                    actions.append(np.random.choice(np.nonzero(np.array(mask.cpu()))[0]))
+            return actions
+
+
+class RecurrentMaskPolicy(DQNPolicy):
     def __init__(self, obs_space: Discrete, ac_space: Discrete):
         super(RecurrentMaskPolicy, self).__init__()
-        self.hidden_size = 32
-        self.num_layers = 2
-        self.input_one_hot = torch.eye(obs_space.n)
 
-        self.rnn1 = torch.nn.RNN(obs_space.n, self.hidden_size, self.num_layers, batch_first=True)
-        self.linear1 = torch.nn.Linear(self.hidden_size, ac_space.n)
+        self.lstm1 = torch.nn.LSTM(obs_space.n, 8)
+        self.linear1 = torch.nn.Linear(8, 8)
+        self.linear2 = torch.nn.Linear(8, ac_space.n)
 
     def forward(self, x, action_mask=None):
-        hidden = torch.zeros(self.num_layers, 1, self.hidden_size)
-        x = x.view(1, 1, 1)
-        x, _ = self.rnn1(x, hidden)
+        x = x.view(1, 1, -1)
+        x, _ = self.lstm1(x)
         x = self.linear1(x[:, -1, :])
-        x = torch.sigmoid(self.linear1(x))
+        x = torch.sigmoid(self.linear2(x))[0]
         if action_mask is not None:
             _, indices = torch.softmax(x * action_mask, dim=0).max(0)
         else:
             _, indices = torch.softmax(x, dim=0).max(0)
         return indices
 
-
-class MultiDiscretePolicy(torch.nn.Module):
-    def __init__(self, obs_space: MultiDiscrete, ac_space: MultiDiscrete):
-        super(MultiDiscretePolicy, self).__init__()
-        self.linear1 = []
-        self.inputs_one_hot = []
-        for space_dim in obs_space.nvec:
-            self.inputs_one_hot.append(torch.eye(int(space_dim)))
-            self.linear1.append(torch.nn.Linear(space_dim, 16))
-
-        self.linear = torch.nn.Linear(len(self.linear1) * 16, 16)
-        self.output = []
-        for space_dim in ac_space.nvec:
-            self.output.append(torch.nn.Linear(16, space_dim))
-
-    def forward(self, x, action_mask=None):
-        inputs = []
-        for i, linear in enumerate(self.linear1):
-            inputs.append(linear(self.inputs_one_hot[i][x[i] - 1]))
-        concat = torch.cat(inputs)
-        x = self.linear(concat)
-        actions = []
-        for i, output in enumerate(self.output):
-            if action_mask is not None:
-                if i == 0:
-                    _, action = torch.softmax(torch.sigmoid(output(x)) * action_mask[i], dim=0).max(0)
-                    actions.append(action)
-                else:
-                    sliced_action_mask = action_mask[i]
-                    for j, index in enumerate(actions):
-                        sliced_action_mask = sliced_action_mask[index]
-                    _, action = torch.softmax(torch.sigmoid(output(x)) * sliced_action_mask, dim=0).max(0)
-                    actions.append(action)
-            else:
-                _, action = torch.softmax(output(x), dim=0).max(0)
-                actions.append(action)
-        return actions
+    def apply_mask(self, logits, action_mask=None):
+        if action_mask is None:
+            return logits
+        else:
+            return np.random.choice(np.nonzero(np.array(action_mask.cpu()))[0])

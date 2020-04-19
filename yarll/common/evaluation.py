@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 from gym.spaces import Discrete, MultiDiscrete
@@ -31,7 +30,6 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
         assert env.num_envs == 1, "You must pass only one environment when using this function"
 
     episode_rewards, episode_lengths = [], []
-    one_hot = torch.eye(env.observation_space.n, dtype=torch.float)
     for _ in range(n_eval_episodes):
         obs = env.reset()
         done, state = False, None
@@ -41,8 +39,7 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
         action_mask = None
 
         while not done:
-            obs_one_hot = one_hot[obs - 1]
-            action = model.predict(obs_one_hot, action_mask)
+            action = model.predict(obs, action_mask)
             obs, reward, done, info = env.step(action)
             episode_reward += reward
             if callback is not None:
@@ -53,17 +50,20 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
 
             if info.get('action_mask') is not None:
                 if isinstance(env.action_space, Discrete):
-                    action_mask = torch.from_numpy(np.array(info.get('action_mask')))
+                    action_mask = info.get('action_mask')
 
                 elif isinstance(env.action_space, MultiDiscrete):
                     action_mask = []
                     for mask in info.get('action_mask'):
-                        action_mask.append(torch.from_numpy(np.array(mask)))
-        episode_rewards.append(episode_reward)
+                        action_mask.append(mask)
+
+        episode_rewards.append(torch.tensor(episode_reward))
         episode_lengths.append(episode_length)
 
-    mean_reward = np.mean(episode_rewards)
-    std_reward = np.std(episode_rewards)
+    episode_rewards = torch.stack(episode_rewards)
+
+    mean_reward = torch.mean(episode_rewards)
+    std_reward = torch.std(episode_rewards)
 
     if reward_threshold is not None:
         assert mean_reward > reward_threshold, 'Mean reward below threshold: '\

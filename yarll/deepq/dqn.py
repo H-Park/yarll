@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from random import random
 
 from gym.spaces import Discrete, MultiDiscrete
 
@@ -81,7 +82,6 @@ class DQN(OffPolicyRLModel):
 
         self.policy = policy
         self.target = policy
-        self.act = None
         self.replay_buffer = None
         self.beta_schedule = None
         self.exploration = None
@@ -134,13 +134,14 @@ class DQN(OffPolicyRLModel):
 
             reset = True
             obs = self.env.reset()
+            obs = self.transform_observation(obs)
             # Retrieve unnormalized observation for saving into the buffer
             if self._vec_normalize_env is not None:
                 obs_ = self._vec_normalize_env.get_original_obs().squeeze()
 
             action_mask = None
 
-            for _ in range(total_timesteps):
+            for step in range(total_timesteps):
                 # Take action and update exploration to the newest value
                 kwargs = {}
                 if not self.param_noise:
@@ -153,26 +154,28 @@ class DQN(OffPolicyRLModel):
                     # See Appendix C.1 in Parameter Space Noise for Exploration, Plappert et al., 2017
                     # for detailed explanation.
                     update_param_noise_threshold = \
-                        -np.log(1. - self.exploration.value(self.num_timesteps) +
-                                self.exploration.value(self.num_timesteps) / float(self.env.action_space.n))
+                        -torch.log(1. - self.exploration.value(self.num_timesteps) +
+                                   self.exploration.value(self.num_timesteps) / float(self.env.action_space.n))
                     kwargs['reset'] = reset
                     kwargs['update_param_noise_threshold'] = update_param_noise_threshold
                     kwargs['update_param_noise_scale'] = True
+                if random() > self.exploration.value(step):
+                    action = self.policy.apply_mask(self.env.action_space.sample(), action_mask=action_mask)
+                else:
+                    action = self.policy(*obs, action_mask=action_mask)
 
-                one_hot = torch.eye(self.env.observation_space.n, dtype=torch.float).cuda()
-                action = self.policy(one_hot[obs - 1], action_mask=action_mask)
                 env_action = action
                 reset = False
                 new_obs, rew, done, info = self.env.step(env_action)
 
                 if info.get('action_mask') is not None:
                     if isinstance(self.env.action_space, Discrete):
-                        action_mask = torch.from_numpy(np.array(info.get('action_mask')))
+                        action_mask = info.get('action_mask')
 
                     elif isinstance(self.env.action_space, MultiDiscrete):
                         action_mask = []
                         for mask in info.get('action_mask'):
-                            action_mask.append(torch.from_numpy(np.array(mask)))
+                            action_mask.append(mask)
 
                 self.num_timesteps += 1
 
@@ -188,13 +191,15 @@ class DQN(OffPolicyRLModel):
                     # Avoid changing the original ones
                     obs_, new_obs_, reward_ = obs, new_obs, rew
                 # Store transition in the replay buffer.
-                self.replay_buffer.add(one_hot[obs_ - 1], action, reward_, one_hot[new_obs_ - 1], float(done))
+                new_obs_ = self.transform_observation(new_obs_)
+                self.replay_buffer.add(obs, action, reward_, new_obs_, float(done))
+                obs = new_obs_
                 # Save the unnormalized observation
                 if self._vec_normalize_env is not None:
                     obs_ = new_obs_
                 if writer is not None:
-                    ep_rew = np.array([reward_]).reshape((1, -1))
-                    ep_done = np.array([done]).reshape((1, -1))
+                    ep_rew = torch.tensor([reward_]).reshape((1, -1))
+                    ep_done = torch.tensor([done]).reshape((1, -1))
                     total_episode_reward_logger(self.episode_reward, ep_rew, ep_done, writer, self.num_timesteps)
 
                 episode_rewards[-1] += reward_
@@ -229,10 +234,10 @@ class DQN(OffPolicyRLModel):
                         weights, batch_idxes = np.ones_like(rewards), None
                     # pytype:enable=bad-unpacking
 
-                    td_errors = self._train_step(obses_t, actions, rewards, obses_tp1)
+                    # td_errors = self._train_step(actions, rewards, obses_tp1)
 
                     if self.prioritized_replay:
-                        new_priorities = np.abs(0) + self.prioritized_replay_eps
+                        new_priorities = self.prioritized_replay_eps
                         assert isinstance(self.replay_buffer, PrioritizedReplayBuffer)
                         self.replay_buffer.update_priorities(batch_idxes, new_priorities)
 
@@ -262,11 +267,11 @@ class DQN(OffPolicyRLModel):
         callback.on_training_end()
         return self
 
-    def predict(self, observation, action_mask=None):
-        actions = self.policy(torch.tensor(observation).cuda(), action_mask)
+    def predict(self, obs, action_mask=None):
+        actions = self.policy(*self.transform_observation(obs), action_mask=action_mask)
         return actions
 
-    def _train_step(self, obs_t, action, reward, obs_tp1,):
+    def _train_step(self, action, reward, obs_tp1):
         """
         Function that takes a transition (s,a,r,s') and optimizes Bellman Equation's error:
 
@@ -283,10 +288,9 @@ class DQN(OffPolicyRLModel):
         """
 
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, obs_tp1)), dtype=torch.bool)
-        non_final_next_states = torch.stack([s for s in obs_tp1 if s is not None]).cuda()
-        state_batch = torch.stack([obs for obs in obs_t]).cuda()
-        action_batch = torch.stack([a for a in action]).cuda()
-        reward_batch = torch.cat([torch.tensor([r]) for r in reward]).cuda()
+        non_final_next_states = torch.stack([s[0] for s in obs_tp1 if s is not None])
+        action_batch = torch.stack([a for a in action])
+        reward_batch = torch.cat([torch.tensor([r]) for r in reward])
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
@@ -298,8 +302,8 @@ class DQN(OffPolicyRLModel):
         # on the "older" target_net; selecting their best reward with max(1)[0].
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(self.batch_size).cuda()
-        next_state_values[non_final_mask] = self.target(non_final_next_states).float()
+        next_state_values = torch.zeros(self.batch_size)
+        next_state_values[non_final_mask] = self.target(non_final_next_states).float().detach()
 
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.gamma) + reward_batch
@@ -328,6 +332,8 @@ class DQN(OffPolicyRLModel):
         self.target.load_state_dict(self.policy.state_dict())
 
     def get_parameter_list(self):
+        if self.params is None:
+            self.params = self.policy.parameters
         return self.params
 
     def save(self, save_path, cloudpickle=False):

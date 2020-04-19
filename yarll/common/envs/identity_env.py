@@ -48,10 +48,10 @@ class IdentityEnv(Env):
         return self.state, reward, done, {}
 
     def _choose_next_state(self):
-        self.state = self.action_space.sample()
+        self.state = torch.tensor(self.observation_space.sample(), dtype=torch.long)
 
     def _get_reward(self, action: torch.Tensor):
-        return 1 if torch.tensor(self.state) == action else 0
+        return 1 if torch.all(self.state.eq(action)) else 0
 
     def render(self, mode='human'):
         pass
